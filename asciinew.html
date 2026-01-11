@@ -1,0 +1,698 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>Live ASCII Video Player (Ultimate)</title>
+  <style>
+    :root{
+      --bg:#0b0b0b; --fg:#eaeaea; --muted:#9aa0a6; --accent:#8ab4f8;
+      --card:#151515; --border:#262626; --danger:#e57373;
+      --stage-ar: 16/9;
+    }
+    *{box-sizing:border-box}
+    html,body{height:100%;margin:0;background:var(--bg);color:var(--fg);font-family:ui-sans-serif,system-ui,-apple-system,sans-serif;}
+    .wrap{display:grid;grid-template-rows:auto 1fr auto;min-height:100dvh;}
+    
+    /* Layout */
+    header{padding:16px 20px;border-bottom:1px solid var(--border);display:flex;gap:12px;align-items:center;justify-content:space-between;flex-wrap:wrap; z-index:20; position:relative;}
+    header h1{font-size:18px;line-height:1.2;margin:0;font-weight:700;letter-spacing:.2px}
+    header .sub{font-size:12px;color:var(--muted)}
+    
+    main{display:grid;grid-template-columns:360px 1fr;gap:16px;padding:16px;min-height:0; position:relative; z-index:10;}
+    .left{min-width:260px; display:flex; flex-direction:column; gap:10px;}
+    .right{display:grid;grid-template-rows:1fr auto;min-height:0; gap:10px;}
+    
+    /* Components */
+    .card{background:var(--card);border:1px solid var(--border);border-radius:14px;padding:12px}
+    .controls{display:flex;flex-wrap:wrap;gap:10px;align-items:center}
+    label{font-size:11px; text-transform:uppercase; letter-spacing:0.5px; color:var(--muted);display:block;margin-bottom:6px; font-weight:600;}
+    
+    input[type="text"], input[type="number"], input[type="url"], .btn, select{
+      background:#101010;border:1px solid var(--border);color:var(--fg);
+      padding:8px 10px;border-radius:8px;outline:none;min-width:0; font-size:13px; font-family:monospace;
+    }
+    input[type="range"]{width:100%; display:block; margin:8px 0;}
+    
+    .btn{cursor:pointer;user-select:none;transition:transform .05s ease, background .2s ease}
+    .btn:hover{background:#141414}
+    .btn:active{transform:translateY(1px)}
+    .btn.primary{background:var(--accent);color:#0b1220;border-color:#2b63d3}
+    .btn.danger{background:var(--danger);color:#190a0a;border-color:#7a2e2e}
+    .btn.ghost{background:transparent;border-color:transparent}
+    
+    .row{display:flex;gap:12px;flex-wrap:wrap;align-items:end; margin-bottom:8px;}
+    .grow{flex:1 1 auto}
+    
+    /* Stage */
+    .stage{contain:layout; position:relative;display:flex;align-items:center;justify-content:center;background:#000;border-radius:12px;border:1px solid var(--border);overflow:auto;aspect-ratio:var(--stage-ar)}
+    canvas#ascii{display:block;width:100%;height:100%; pointer-events:none;}
+    
+    /* Pre-formatted text support */
+    #asciiPre {
+      margin:0; font-family:monospace; line-height:1.0; color:#fff; white-space:pre; 
+      transform-origin:top left; display:none; pointer-events:none;
+    }
+    #asciiPre.visible { display:block; }
+    canvas#ascii.hidden { display:none; }
+
+    /* Video Hiding Fix */
+    .visually-hidden { position:absolute; width:1px; height:1px; padding:0; margin:-1px; overflow:hidden; clip:rect(0,0,0,0); border:0; opacity:0; }
+    
+    .footer{padding:10px 16px;border-top:1px solid var(--border);display:flex;justify-content:space-between;color:var(--muted);font-size:12px}
+    .kv{display:grid;grid-template-columns:auto 1fr;gap:4px 12px;align-items:center}
+    .muted{color:var(--muted)}
+    .hint{font-size:12px;color:var(--muted);margin-top:6px}
+    .switch{display:flex;align-items:center;gap:8px}
+    
+    /* Mobile Responsive */
+    .mobile-only{display:none}
+    .desktop-only{display:initial}
+    body.is-mobile main{grid-template-columns:1fr; padding:10px; gap:10px}
+    body.is-mobile .left{order:2}
+    body.is-mobile .right{order:1; min-height:40vh;}
+    body.is-mobile .desktop-only{display:none}
+    body.is-mobile .mobile-only{display:block}
+    
+    body.is-mobile .mobilebar{
+      position:sticky;bottom:0;left:0;right:0;
+      display:flex;gap:8px;align-items:center;justify-content:space-between;
+      background:var(--card);border-top:1px solid var(--border);
+      padding:8px env(safe-area-inset-right) calc(8px + env(safe-area-inset-bottom)) env(safe-area-inset-left);
+      z-index:100;
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <div>
+        <h1>Live ASCII Video Player</h1>
+        <div class="sub desktop-only">DOS 16-color palette, Truecolor, custom charsets & WebCodecs acceleration.</div>
+      </div>
+      <div class="controls desktop-only">
+        <button class="btn primary" id="playBtn">Play</button>
+        <button class="btn ghost" id="pauseBtn">Pause</button>
+        <button class="btn danger" id="stopBtn">Stop</button>
+        <button class="btn ghost" id="muteBtn">Mute</button>
+        <button class="btn ghost" id="fsBtn">Full-screen</button>
+      </div>
+    </header>
+
+    <main>
+      <section class="right">
+        <div class="stage" id="stage">
+          <canvas id="ascii"></canvas>
+          <pre id="asciiPre"></pre>
+        </div>
+        <div class="card" style="position:relative">
+           <div class="row" style="margin:0; justify-content:space-between; align-items:center">
+              <div class="muted small">Source Video (<span id="status">Idle</span>)</div>
+              <div class="switch">
+                 <input id="showNative" type="checkbox"/>
+                 <label for="showNative" style="margin:0; cursor:pointer">Show Native</label>
+              </div>
+           </div>
+           <!-- Key Fix: visually-hidden class allows decoding to continue -->
+           <video id="video" class="visually-hidden" crossorigin="anonymous" playsinline webkit-playsinline loop muted></video>
+        </div>
+      </section>
+
+      <section class="left">
+        <!-- Load Source -->
+        <div class="card">
+          <div class="row">
+            <div class="grow">
+              <label for="fileInput">Load video file</label>
+              <input id="fileInput" type="file" accept="video/*" style="width:100%"/>
+              <div class="hint">Recommended: Local .mp4 (fastest)</div>
+            </div>
+          </div>
+          <div class="row" style="margin-top:10px">
+            <div class="grow">
+              <label for="urlInput">Or Video URL</label>
+              <input id="urlInput" type="url" placeholder="https://example.com/video.mp4"/>
+            </div>
+            <button class="btn" id="loadUrlBtn">Load</button>
+          </div>
+        </div>
+
+        <!-- Desktop Controls -->
+        <div class="card desktop-only">
+          <div class="row">
+            <div class="grow">
+              <label>Sampling (px)</label>
+              <input id="scale" type="range" min="4" max="28" step="1" value="10"/>
+              <div class="hint" id="scaleLabel">10 px/char</div>
+            </div>
+            <div style="width:80px">
+              <label>Font (px)</label>
+              <input id="fontSize" type="number" min="6" max="28" value="14"/>
+            </div>
+            <div style="width:80px">
+              <label>FPS Cap</label>
+              <input id="fpsCap" type="number" min="5" max="60" value="30"/>
+            </div>
+          </div>
+
+          <div class="row" style="margin-top:10px">
+            <div class="grow">
+              <label>Charset</label>
+              <select id="charsetPreset">
+                <option value="dense" selected>Dense (@$B...)</option>
+                <option value="classic">Classic (@%#...)</option>
+                <option value="blocks">Blocks (█▓▒░)</option>
+                <option value="numbers">Numbers</option>
+                <option value="custom">Custom</option>
+              </select>
+            </div>
+             <div class="switch">
+              <input id="invert" type="checkbox"/>
+              <label for="invert" style="margin:0">Invert</label>
+            </div>
+          </div>
+          <div class="row">
+             <input id="charset" type="text" value="@$B%8&WM#*oahkbdpqwmZO0QLCJUYXzcvunxrjft/|()1{}[]?-_+~<>i!lI;:,\&quot;^`'. " style="width:100%"/>
+          </div>
+
+          <div class="row" style="margin-top:10px">
+            <div class="grow">
+              <label>Color Mode</label>
+              <select id="colorMode">
+                <option value="off">Off (Monochrome)</option>
+                <option value="fg16" selected>DOS FG 16</option>
+                <option value="fg16bg8">DOS FG 16 + BG 8</option>
+                <option value="gray4">Grays (4-bit)</option>
+                <option value="fullcolor">Truecolor 24-bit</option>
+                <option value="fg216">Web-Safe 216</option>
+                <option value="xterm256">XTerm 256</option>
+              </select>
+            </div>
+            <div class="grow">
+              <label>Palette</label>
+              <select id="paletteMode">
+                <option value="dos" selected>DOS RGBI</option>
+                <option value="win16">Windows 16</option>
+                <option value="ansi16">ANSI 16</option>
+                <option value="vga16">VGA 16</option>
+                <option value="cga16">CGA 16</option>
+                <option value="gray16">Gray 16</option>
+                <option value="xterm16">XTerm 16</option>
+                <option value="vga-auto">VGA Auto-Learn</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="row" style="margin-top:10px">
+            <div class="grow">
+              <label>Dither</label>
+              <select id="dither">
+                <option value="off" selected>Off</option>
+                <option value="bayer2">Bayer 2×2</option>
+                <option value="bayer4">Bayer 4×4</option>
+              </select>
+            </div>
+            <div class="switch">
+              <input id="halfBlock" type="checkbox"/>
+              <label for="halfBlock" style="margin:0">Half-Block</label>
+            </div>
+            <div class="switch">
+              <input id="hqLuma" type="checkbox"/>
+              <label for="hqLuma" style="margin:0">HQ Luma</label>
+            </div>
+          </div>
+
+           <div class="row" style="margin-top:10px">
+            <div class="switch">
+              <input id="usePre" type="checkbox"/>
+              <label for="usePre" style="margin:0">Use DOM &lt;pre&gt;</label>
+            </div>
+            <div class="switch">
+              <input id="blink" type="checkbox"/>
+              <label for="blink" style="margin:0">Simulate Blink</label>
+            </div>
+           </div>
+        </div>
+
+        <!-- Mobile settings -->
+        <details class="settings mobile-only card">
+          <summary>Settings</summary>
+          <div class="content" style="padding-top:10px">
+              <div class="row">
+                <div class="grow"><label>Scale</label><input id="scale_m" type="range" min="4" max="28" value="12"/></div>
+              </div>
+              <div class="row">
+                 <div class="grow">
+                   <label>Mode</label>
+                   <select id="colorMode_m">
+                    <option value="fg16">DOS 16</option>
+                    <option value="fullcolor">Truecolor</option>
+                    <option value="off">Mono</option>
+                  </select>
+                 </div>
+                 <div class="switch"><input id="invert_m" type="checkbox"/><label for="invert_m" style="margin:0">Invert</label></div>
+              </div>
+               <div class="row">
+                 <div class="switch"><input id="halfBlock_m" type="checkbox"/><label for="halfBlock_m" style="margin:0">Half-Block</label></div>
+              </div>
+          </div>
+        </details>
+
+        <div class="card">
+          <div class="kv small">
+            <div class="muted">Output</div><div id="resOut">—</div>
+            <div class="muted">Video</div><div id="infoOut">—</div>
+            <div class="muted">Backend</div><div id="backendOut">Init</div>
+            <div class="muted">Timing</div><div id="timingOut">—</div>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <!-- Mobile action bar -->
+    <div class="mobilebar mobile-only">
+      <button class="btn primary" id="mPlay">Play</button>
+      <button class="btn ghost" id="mPause">Pause</button>
+      <button class="btn danger" id="mStop">Stop</button>
+      <button class="btn ghost" id="mFs">Full</button>
+    </div>
+
+    <div class="footer">
+      <div>Tip: "Half-block" doubles vertical resolution. "Truecolor" bypasses palette limits.</div>
+    </div>
+  </div>
+
+  <!-- 1. Backend Script (Defined First to avoid Reference Errors) -->
+  <script>
+    (function(){
+      const Has = {
+        secure: self.isSecureContext === true,
+        webcodecs: ('VideoFrame' in self) && ('MediaStreamTrackProcessor' in self),
+        rvfc: 'requestVideoFrameCallback' in HTMLVideoElement.prototype,
+        worker: !!window.Worker,
+        offscreen: typeof OffscreenCanvas !== 'undefined'
+      };
+
+      // Worker Code as String
+      function getWorkerCode(cols, rows, useTP){
+        return `
+          let cols=${cols}|0, rows=${rows}|0;
+          let off = (typeof OffscreenCanvas!=='undefined') ? new OffscreenCanvas(cols, rows) : null;
+          let ctx = off ? off.getContext('2d', {willReadFrequently:true}) : null;
+          
+          function sendRGBA(){
+            if (!ctx) return;
+            const img = ctx.getImageData(0,0, cols, rows);
+            postMessage({type:'result', cols, rows, rgba: img.data}, [img.data.buffer]);
+          }
+          
+          onmessage = async (e)=>{
+            const t = e.data && e.data.type;
+            if (t==='bitmap'){ 
+                if (ctx){ 
+                    ctx.drawImage(e.data.bitmap,0,0); 
+                    try{ e.data.bitmap.close&&e.data.bitmap.close(); }catch{}; 
+                    sendRGBA(); 
+                } 
+                return; 
+            }
+            if (t==='track' && ${useTP?'true':'false'}){
+              const track = e.data.track;
+              try {
+                const proc = new MediaStreamTrackProcessor({track});
+                const reader = proc.readable.getReader();
+                while(true){
+                  const {value:frame, done} = await reader.read();
+                  if (done || !frame) break;
+                  if (!ctx){ frame.close(); continue; }
+                  let drawn=false;
+                  try { ctx.drawImage(frame, 0,0, cols, rows); drawn=true; } catch{}
+                  if (!drawn){
+                    try{
+                      const bmp = await createImageBitmap(frame, {resizeWidth: cols, resizeHeight: rows});
+                      ctx.drawImage(bmp, 0,0);
+                      try{ bmp.close&&bmp.close(); }catch{}
+                      drawn=true;
+                    }catch{}
+                  }
+                  frame.close();
+                  if (drawn) sendRGBA();
+                }
+              } catch (err){}
+            }
+          };`;
+      }
+
+      window.Backend = {
+        async start(video, dims, onResult){
+          const cols = dims.cols|0, rows = dims.rows|0;
+          // Priority 1: WebCodecs + Worker (Chrome/Edge/Desktop)
+          if (Has.secure && Has.webcodecs && Has.worker && Has.offscreen) {
+            try { return startWebCodecsWorker(video, cols, rows, onResult); } catch(e){}
+          }
+          // Priority 2: rVFC + Worker (Firefox/Safari)
+          if (Has.rvfc && Has.worker && Has.offscreen){
+            return startRvfcWorker(video, cols, rows, onResult);
+          }
+          // Priority 3: Main Thread Fallback
+          return startMainThread(video, cols, rows, onResult);
+        }
+      };
+
+      function startWebCodecsWorker(video, cols, rows, onResult){
+        const blob = new Blob([getWorkerCode(cols, rows, true)], {type:'application/javascript'});
+        const w = new Worker(URL.createObjectURL(blob));
+        w.onmessage = (e)=>{ if (e.data && e.data.type==='result') onResult(e.data); };
+        
+        const stream = video.captureStream ? video.captureStream() : (video.mozCaptureStream ? video.mozCaptureStream() : null);
+        if (!stream) throw new Error("No stream");
+        const track = stream.getVideoTracks()[0];
+        
+        w.postMessage({type:'track', track}, [track]);
+        document.getElementById('backendOut').textContent = "WebCodecs Worker";
+        return { stop(){ w.terminate(); } };
+      }
+
+      function startRvfcWorker(video, cols, rows, onResult){
+        const blob = new Blob([getWorkerCode(cols, rows, false)], {type:'application/javascript'});
+        const w = new Worker(URL.createObjectURL(blob));
+        w.onmessage = (e)=>{ if (e.data && e.data.type==='result') onResult(e.data); };
+        
+        let running = true, vfc = null;
+        const pump = async ()=>{
+          if (!running) return;
+          try {
+            // Resize on GPU if possible via createIB
+            const bmp = await createImageBitmap(video, {resizeWidth: cols, resizeHeight: rows});
+            w.postMessage({type:'bitmap', bitmap:bmp}, [bmp]);
+          } catch (e) {} // Video might not be ready
+          if(video.requestVideoFrameCallback) vfc = video.requestVideoFrameCallback(()=>pump());
+          else setTimeout(pump, 33);
+        };
+        pump();
+        document.getElementById('backendOut').textContent = "rVFC Worker";
+        return { stop(){ running=false; if(vfc && video.cancelVideoFrameCallback) video.cancelVideoFrameCallback(vfc); w.terminate(); } };
+      }
+
+      function startMainThread(video, cols, rows, onResult){
+        let running = true;
+        const c = document.createElement('canvas'); c.width=cols; c.height=rows;
+        const cx = c.getContext('2d', {willReadFrequently:true});
+        const tick = () => {
+          if (!running) return;
+          try {
+             cx.drawImage(video, 0,0, cols, rows);
+             const img = cx.getImageData(0,0, cols, rows);
+             onResult({type:'result', cols, rows, rgba: img.data});
+          } catch(e){}
+          requestAnimationFrame(tick);
+        };
+        tick();
+        document.getElementById('backendOut').textContent = "Main Thread";
+        return { stop(){ running=false; } };
+      }
+    })();
+  </script>
+
+  <!-- 2. Application Logic -->
+  <script>
+    (() => {
+      // -- Utils --
+      const $ = id => document.getElementById(id);
+      function isMobileUA(){ return /Android|iPhone|iPad|iPod/i.test(navigator.userAgent); }
+      if (isMobileUA()) document.body.classList.add('is-mobile');
+
+      // -- DOM Elements --
+      const video = $('video');
+      const asciiCanvas = $('ascii');
+      const asciiCtx = asciiCanvas.getContext('2d', {alpha:false});
+      const asciiPre = $('asciiPre');
+      const stage = $('stage');
+      const status = $('status');
+
+      // -- State --
+      let backendHandle = null;
+      let lastFrameTime = 0;
+      let debounceTimer = null;
+      let activePalette = [];
+      let km = null; // K-means state for auto-palette
+
+      // -- Palettes --
+      const DOS16 = [[0,0,0],[170,0,0],[0,170,0],[170,85,0],[0,0,170],[170,0,170],[0,170,170],[170,170,170],[85,85,85],[255,85,85],[85,255,85],[255,255,85],[85,85,255],[255,85,255],[255,255,85],[255,255,255]];
+      const WIN16 = [[0,0,0],[128,0,0],[0,128,0],[128,128,0],[0,0,128],[128,0,128],[0,128,128],[192,192,192],[128,128,128],[255,0,0],[0,255,0],[255,255,0],[0,0,255],[255,0,255],[0,255,255],[255,255,255]];
+      const CGA16 = [[0,0,0],[0,0,170],[0,170,0],[0,170,170],[170,0,0],[170,0,170],[170,85,0],[170,170,170],[85,85,85],[85,85,255],[85,255,85],[85,255,255],[255,85,85],[255,85,255],[255,255,85],[255,255,255]];
+      const GRAY16 = Array.from({length:16},(_,i)=>{const v=i*17; return [v,v,v]});
+      
+      const PRESETS = {
+        dense: "@$B%8&WM#*oahkbdpqwmZO0QLCJUYXzcvunxrjft/|()1{}[]?-_+~<>i!lI;:,\&quot;^`'. ",
+        classic: "@%#*+=-:. ",
+        blocks: "█▓▒░ ",
+        numbers: "8008135 "
+      };
+      const BAYER2 = [0,2,3,1].map(v=>(v+0.5)/4*255);
+      const BAYER4 = [0,8,2,10,12,4,14,6,3,11,1,9,15,7,13,5].map(v=>(v+0.5)/16*255);
+
+      function nearestIdx(rgb, pal){
+        let best=0, bestd=Infinity;
+        for(let i=0; i<pal.length; i++){
+          const p=pal[i], dr=rgb[0]-p[0], dg=rgb[1]-p[1], db=rgb[2]-p[2];
+          const d=dr*dr+dg*dg+db*db;
+          if(d<bestd){bestd=d; best=i;}
+        }
+        return best;
+      }
+
+      function updateDerived(){
+         // Sync Mobile <-> Desktop
+         if(isMobileUA()) {
+             $('scale').value = $('scale_m').value;
+             $('invert').checked = $('invert_m').checked;
+             $('halfBlock').checked = $('halfBlock_m').checked;
+             $('colorMode').value = $('colorMode_m').value;
+         } else {
+             $('scale_m').value = $('scale').value;
+             $('invert_m').checked = $('invert').checked;
+             $('halfBlock_m').checked = $('halfBlock').checked;
+             $('colorMode_m').value = $('colorMode').value;
+         }
+         $('scaleLabel').textContent = $('scale').value + " px/char";
+         
+         const pm = $('paletteMode').value;
+         if(pm==='win16') activePalette = WIN16;
+         else if(pm==='cga16'||pm==='vga16') activePalette = CGA16;
+         else if(pm==='gray16') activePalette = GRAY16;
+         else activePalette = DOS16; // default
+      }
+
+      function renderFrame(rgba, w, h){
+         // Rate Limiting
+         const fps = parseInt($('fpsCap').value);
+         const now = performance.now();
+         if(now - lastFrameTime < (1000/fps)) return;
+         lastFrameTime = now;
+
+         // settings
+         const scale = parseInt($('scale').value);
+         const fontSize = parseInt($('fontSize').value);
+         const colorMode = $('colorMode').value;
+         const dither = $('dither').value;
+         const useHalf = $('halfBlock').checked;
+         const invert = $('invert').checked;
+         const hqLuma = $('hqLuma').checked;
+         const usePre = $('usePre').checked;
+         
+         // Setup Chars
+         let chars = $('charset').value;
+         if($('charsetPreset').value !== 'custom') chars = PRESETS[$('charsetPreset').value] || PRESETS.dense;
+         const len = chars.length - 1;
+
+         // Toggle Canvas/Pre
+         if(usePre){ 
+             if(!asciiPre.classList.contains('visible')){ asciiPre.classList.add('visible'); asciiCanvas.classList.add('hidden'); }
+         } else {
+             if(asciiPre.classList.contains('visible')){ asciiPre.classList.remove('visible'); asciiCanvas.classList.remove('hidden'); }
+         }
+
+         // Metrics
+         asciiCtx.font = `${fontSize}px monospace`;
+         asciiCtx.textBaseline = 'top';
+         const m = asciiCtx.measureText('M');
+         const chW = m.width;
+         const chH = fontSize;
+
+         // Resize
+         const targetW = w * chW;
+         const targetH = useHalf ? (h/2) * chH : h * chH;
+         
+         if(!usePre && (asciiCanvas.width !== targetW || asciiCanvas.height !== targetH)){
+             asciiCanvas.width = targetW; asciiCanvas.height = targetH;
+             asciiCtx.font = `${fontSize}px monospace`; asciiCtx.textBaseline = 'top';
+         }
+
+         // Render Loop
+         if(!usePre) { asciiCtx.fillStyle='#000'; asciiCtx.fillRect(0,0,targetW,targetH); }
+         
+         const ditherArr = (dither==='bayer4')?BAYER4 : (dither==='bayer2')?BAYER2 : null;
+         const bSize = (dither==='bayer4')?4:2;
+         let preStr = "";
+         let lastFill = null;
+
+         const yStep = useHalf ? 2 : 1;
+         
+         for(let y=0; y<h; y+=yStep){
+             for(let x=0; x<w; x++){
+                 const i = (y*w + x)*4;
+                 const r=rgba[i], g=rgba[i+1], b=rgba[i+2];
+                 
+                 // Luma
+                 let Y = hqLuma ? (0.2126*r + 0.7152*g + 0.0722*b) : (r+g+b)/3;
+                 
+                 // Dither
+                 if(ditherArr){
+                     const map = ditherArr[(y%bSize)*bSize + (x%bSize)];
+                     const drift = (map-128)*0.3;
+                     Y = Math.max(0, Math.min(255, Y+drift));
+                 }
+                 
+                 // Char
+                 let idx = Math.floor((Y/255)*len);
+                 if(invert) idx = len-idx;
+                 const ch = chars[idx];
+
+                 // Color
+                 let fill = '#fff';
+                 if(colorMode==='off') fill='#fff';
+                 else if(colorMode==='fullcolor') fill=`rgb(${r},${g},${b})`;
+                 else if(colorMode==='gray4') {
+                     const gray = (Y < 64) ? 0 : (Y < 128 ? 85 : (Y < 192 ? 170 : 255));
+                     fill=`rgb(${gray},${gray},${gray})`;
+                 }
+                 else {
+                     // Palette modes
+                     const cIdx = nearestIdx([r,g,b], activePalette);
+                     const c = activePalette[cIdx];
+                     fill = `rgb(${c[0]},${c[1]},${c[2]})`;
+                 }
+
+                 if(usePre){
+                     preStr += ch;
+                 } else {
+                     if(useHalf){
+                         // Half block rendering
+                         const i2 = ((y+1)*w + x)*4;
+                         const r2=rgba[i2], g2=rgba[i2+1], b2=rgba[i2+2];
+                         let topC = fill;
+                         let botC = '#000';
+                         
+                         if(colorMode==='fullcolor') botC=`rgb(${r2},${g2},${b2})`;
+                         else {
+                            const cIdx2 = nearestIdx([r2,g2,b2], activePalette);
+                            const c2 = activePalette[cIdx2];
+                            botC = `rgb(${c2[0]},${c2[1]},${c2[2]})`;
+                         }
+                         
+                         asciiCtx.fillStyle = botC;
+                         asciiCtx.fillRect(x*chW, (y/2)*chH, chW, chH);
+                         asciiCtx.fillStyle = topC;
+                         asciiCtx.fillText('▀', x*chW, (y/2)*chH);
+                     } else {
+                         // Standard rendering
+                         if(fill !== lastFill){ asciiCtx.fillStyle=fill; lastFill=fill; }
+                         asciiCtx.fillText(ch, x*chW, y*chH);
+                     }
+                 }
+             }
+             if(usePre) preStr += '\n';
+         }
+         if(usePre) asciiPre.textContent = preStr;
+         $('timingOut').textContent = "OK";
+      }
+
+      async function startBackend(){
+         if(backendHandle && backendHandle.stop) backendHandle.stop();
+         
+         const scale = parseInt($('scale').value);
+         const w = Math.floor(video.videoWidth / scale);
+         const h = Math.floor(video.videoHeight / scale);
+         if(!w || !h) return;
+
+         $('resOut').textContent = `${w}x${h}`;
+         $('infoOut').textContent = `${video.videoWidth}x${video.videoHeight}`;
+
+         backendHandle = await window.Backend.start(video, {cols:w, rows:h}, (data)=>{
+             renderFrame(data.rgba, data.cols, data.rows);
+         });
+      }
+
+      function debouncedRestart(){
+         clearTimeout(debounceTimer);
+         debounceTimer = setTimeout(startBackend, 300);
+      }
+
+      // -- Events --
+      
+      // Setup controls
+      const inputs = ['scale','scale_m','fontSize','fpsCap','charset','charsetPreset','invert','invert_m','halfBlock','halfBlock_m','dither','hqLuma','usePre','colorMode','colorMode_m','paletteMode'];
+      inputs.forEach(id=>{
+          const el = $(id);
+          if(!el) return;
+          el.addEventListener(el.type==='checkbox'?'change':'input', ()=>{
+             updateDerived();
+             // Heavy updates need restart, light ones don't, but simplier to just debounce restart for resolution changes
+             if(id.includes('scale') || id.includes('half')) debouncedRestart(); 
+          });
+      });
+
+      // Video Controls
+      const play = async () => { try{ await video.play(); status.textContent="Playing"; }catch(e){ status.textContent="Autoplay Blocked"; } };
+      const pause = () => { video.pause(); status.textContent="Paused"; };
+      const stop = () => { video.pause(); video.currentTime=0; status.textContent="Stopped"; };
+
+      $('playBtn').onclick = $('mPlay').onclick = play;
+      $('pauseBtn').onclick = $('mPause').onclick = pause;
+      $('stopBtn').onclick = $('mStop').onclick = stop;
+      $('muteBtn').onclick = ()=>{ video.muted=!video.muted; $('muteBtn').textContent=video.muted?"Unmute":"Mute"; };
+      $('fsBtn').onclick = $('mFs').onclick = ()=>{ if(!document.fullscreenElement) stage.requestFullscreen(); else document.exitFullscreen(); };
+
+      $('showNative').onchange = (e) => {
+         if(e.target.checked) video.classList.remove('visually-hidden');
+         else video.classList.add('visually-hidden');
+      };
+
+      // File / URL Loading
+      $('fileInput').onchange = (e) => {
+          const f = e.target.files[0];
+          if(f){
+              const url = URL.createObjectURL(f);
+              video.src = url;
+              status.textContent = `File: ${f.name}`;
+              // Wait for metadata before starting backend
+          }
+      };
+
+      $('loadUrlBtn').onclick = () => {
+          const u = $('urlInput').value;
+          if(u){
+              video.crossOrigin = "anonymous";
+              video.src = u;
+              status.textContent = "Loading URL...";
+          }
+      };
+
+      video.addEventListener('loadedmetadata', ()=>{
+          updateDerived();
+          startBackend();
+          video.play().catch(()=>{ status.textContent = "Click Play"; });
+      });
+      
+      video.addEventListener('play', ()=>{ if(!backendHandle) startBackend(); });
+
+      // Init
+      updateDerived();
+      
+      // Auto-load demo if desired? No, keep clean.
+    })();
+  </script>
+</body>
+</html>
+
